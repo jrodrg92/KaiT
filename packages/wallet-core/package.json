@@ -1,0 +1,13 @@
+{
+  "name": "@agentrail/wallet-core",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "dependencies": {
+    "crypto-js": "^4.2.0",
+    "@kasplex/kiwi": "latest"
+  },
+  "devDependencies": {
+    "@types/crypto-js": "^4.2.0"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "@agentrail/worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "bullmq": "^5.0.0",
+    "dotenv": "^16.0.0",
+    "@agentrail/policy-engine": "workspace:*",
+    "@agentrail/wallet-core": "workspace:*",
+    "@agentrail/types": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "latest",
+    "typescript": "latest"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "agentrail",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "lint": "turbo lint",
+    "test": "turbo test"
+  },
+  "devDependencies": {
+    "turbo": "latest",
+    "typescript": "latest",
+    "prettier": "latest"
+  },
+  "pnpm": {
+    "overrides": {
+      "esbuild": "0.25.12",
+      "uuid": "^11.0.3",
+      "glob": "^11.0.0",
+      "rimraf": "^6.0.0"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "ignoreDeprecations": "6.0",
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "baseUrl": ".",
+    "paths": {
+      "@agentrail/types": ["packages/types/index.ts"],
+      "@agentrail/db": ["packages/db/src/schema.ts"],
+      "@agentrail/wallet-core": ["packages/wallet-core/src/index.ts"],
+      "@agentrail/policy-engine": ["packages/policy-engine/src/index.ts"],
+      "@agentrail/contract-engine": ["packages/contract-engine/src/index.ts"],
+      "@agentrail/sdk": ["packages/sdk/index.ts"],
+      "@agentrail/ui": ["packages/ui/src/index.ts"]
+    }
+  },
+  "exclude": ["node_modules", "dist"]
+}
