@@ -12,9 +12,11 @@
     "test": "turbo test"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.2.4",
+    "ioredis": "^5.0.0",
+    "prettier": "latest",
     "turbo": "latest",
-    "typescript": "latest",
-    "prettier": "latest"
+    "typescript": "latest"
   },
   "pnpm": {
     "overrides": {
