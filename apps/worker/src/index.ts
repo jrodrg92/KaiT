@@ -1,78 +1,93 @@
-import { Worker, Job } from "bullmq";
-import IORedis from "ioredis";
-import { PolicyEngine } from "@agentrail/policy-engine";
-import {
-  WalletManager,
-  MockKMSProvider,
-} from "@agentrail/wallet-core";
-import { db } from "@agentrail/db";
-import {
-  transactions,
-  agents,
-  agentWallets,
-  policies,
-  auditLogs,
-} from "@agentrail/db";
-import { eq } from "drizzle-orm";
-import { v4 as uuidv4 } from "uuid";
-import "dotenv/config";
+import path from "node:path";
+import dotenv from "dotenv";
 
-/**
- * -----------------------------------
- * REDIS / BULLMQ CONNECTION
- * -----------------------------------
- */
+// 1. LOAD ENVIRONMENT FIRST
+const rootEnv = path.join(process.cwd(), ".env");
+const pkgEnv = path.join(__dirname, "../../../.env");
+dotenv.config({ path: rootEnv });
+dotenv.config({ path: pkgEnv });
+dotenv.config();
 
-const redisConnection = process.env.REDIS_URL
-  ? new IORedis(process.env.REDIS_URL, {
-    maxRetriesPerRequest: null,
-    enableReadyCheck: false,
-  })
-  : new IORedis({
-    host: process.env.REDIS_HOST || "127.0.0.1",
-    port: parseInt(process.env.REDIS_PORT || "6379"),
-    maxRetriesPerRequest: null,
-    enableReadyCheck: false,
-  });
+// 2. NOW REQUIRE MODULES THAT NEED ENV
+const { db, transactions, auditLogs, agents, agentWallets, policies } = require("../../../packages/db/src/index");
+const { eq, and } = require("drizzle-orm");
+const { WalletManager } = require("@agentrail/wallet-core");
+const { createKMSProvider } = require("@agentrail/kms");
+const { runReconciliation } = require("./reconciliation");
+const { WebhookService } = require("@agentrail/webhooks");
+const { HeartbeatManager } = require("./heartbeat");
+const { PolicyEngine } = require("@agentrail/policy-engine");
+const { Worker } = require("bullmq");
+const IORedis = require("ioredis");
+const { v4: uuidv4 } = require("uuid");
+
+
+const workerType = process.env.WORKER_TYPE || "all";
 
 
 /**
- * -----------------------------------
- * SERVICES
- * -----------------------------------
+ * START RECONCILIATION LOOP
+ * Runs every 60 seconds to find and fix stuck transactions.
  */
+if (workerType === "all" || workerType === "recon") {
+  const reconHeartbeat = new HeartbeatManager("reconciliation-worker");
+  reconHeartbeat.start();
+  
+  setInterval(() => {
+    runReconciliation().catch((err) => console.error("[Reconciliation Loop Error]", err));
+  }, 60000);
+  console.log("🔄 [Worker] Reconciliation Loop Started");
+}
 
+
+const kmsProvider = createKMSProvider();
+const webhookService = new WebhookService(process.env.REDIS_URL);
+const walletManager = new WalletManager(kmsProvider);
 const policyEngine = new PolicyEngine();
 
-const walletManager = new WalletManager(
-  new MockKMSProvider()
-);
+const redisConnection = process.env.REDIS_URL
+  ? new IORedis(process.env.REDIS_URL, { maxRetriesPerRequest: null, enableReadyCheck: false })
+  : new IORedis({ host: "127.0.0.1", port: 6379, maxRetriesPerRequest: null, enableReadyCheck: false });
 
-/**
- * Signer Worker
- * Isolated environment for policy enforcement and transaction signing.
- */
-const paymentWorker = new Worker(
-  "payment-queue",
-  async (job: Job) => {
-    const { transactionId } = job.data;
+let paymentWorker: Worker | undefined;
 
-    console.log(
-      `[Worker] Starting job ${job.id} for transaction ${transactionId}`
-    );
+if (workerType === "all" || workerType === "signer") {
+  const signerHeartbeat = new HeartbeatManager("signer-worker");
+  signerHeartbeat.start();
+
+  paymentWorker = new Worker(
+    "payment-queue",
+    async (job: Job) => {
+      const { transactionId } = job.data;
+      console.log(`🚀 [Worker] Processing payment transaction: ${transactionId}`);
+      await signerHeartbeat.pulse("busy", job.id);
+
+
 
     /**
-     * 1. Load transaction context
+     * 1. Load transaction context with row-level lock
      */
-    const [tx] = await db
-      .select()
-      .from(transactions)
-      .where(eq(transactions.id, transactionId));
+    const [tx] = await db.transaction(async (sqlTx) => {
+      return await sqlTx
+        .select()
+        .from(transactions)
+        .where(eq(transactions.id, transactionId))
+        .for("update");
+    });
 
-    if (!tx || tx.status !== "pending") {
-      console.warn(
-        `[Worker] Transaction ${transactionId} not found or already processed. Skipping.`
-      );
+    if (!tx) {
+      console.warn(`[Worker] Transaction ${transactionId} not found. Skipping.`);
+      return;
+    }
+
+    // IDEMPOTENCY CHECK
+    if (["broadcasted", "confirmed", "signed"].includes(tx.status)) {
+      console.log(`[Worker] Transaction ${transactionId} already in state ${tx.status}. Skipping.`);
+      return;
+    }
+
+    if (tx.status === "failed" || tx.status === "canceled") {
+      console.warn(`[Worker] Transaction ${transactionId} is already terminal (${tx.status}).`);
       return;
     }
 
@@ -81,79 +96,59 @@ const paymentWorker = new Worker(
       .from(agents)
       .where(eq(agents.id, tx.agentId));
 
-    if (!agent) {
-      throw new Error(
-        `Agent ${tx.agentId} not found for transaction ${tx.id}`
-      );
-    }
+    if (!agent) throw new Error(`Agent ${tx.agentId} not found`);
 
     const [wallet] = await db
       .select()
       .from(agentWallets)
       .where(eq(agentWallets.agentId, tx.agentId));
 
-    if (!wallet) {
-      throw new Error(
-        `Wallet not found for agent ${tx.agentId}`
-      );
-    }
+    if (!wallet) throw new Error(`Wallet not found for agent ${tx.agentId}`);
 
     const [policy] = await db
       .select()
       .from(policies)
       .where(eq(policies.agentId, tx.agentId));
 
-    let budgetReserved = false;
-
     try {
       /**
-       * 2. Policy Enforcement
+       * 2. Final Policy Evaluation
        */
-      const evaluation =
-        policyEngine.evaluatePaymentPolicy(
-          tx as any,
-          policy as any,
-          agent.status as any
-        );
+      const evaluation = policyEngine.evaluatePaymentPolicy(
+        tx as any,
+        policy as any,
+        agent.status as any
+      );
 
       if (evaluation.blocked) {
-        await db
-          .update(transactions)
-          .set({
-            status: "blocked",
-            updatedAt: new Date(),
-          })
-          .where(eq(transactions.id, tx.id));
-
-        await createAuditEntry(
-          agent.orgId,
-          agent.id,
-          "payment.blocked",
-          {
-            reason: evaluation.reason,
-            txId: tx.id,
-          }
-        );
-
-        return {
-          blocked: true,
-          reason: evaluation.reason,
-        };
+        throw new Error(`Policy violation: ${evaluation.reason}`);
       }
 
       /**
-       * 3. Reserve Budget
+       * 3. Update Status: Signing
        */
-      await policyEngine.reserveBudget(
-        tx as any,
-        policy as any
-      );
-
-      budgetReserved = true;
+      await db
+        .update(transactions)
+        .set({
+          status: "signing",
+          updatedAt: new Date(),
+        })
+        .where(eq(transactions.id, tx.id));
 
       /**
-       * 4. Update Status: Signing
+       * 4. Secure Signing
        */
+      const signature = await walletManager.signPaymentTx(
+        {
+          ciphertext: wallet.encryptedSecret,
+          iv: wallet.iv,
+          authTag: wallet.authTag,
+          keyVersion: wallet.keyVersion,
+        },
+        tx
+      );
+
+
       await db
         .update(transactions)
         .set({
@@ -163,19 +158,7 @@ const paymentWorker = new Worker(
         .where(eq(transactions.id, tx.id));
 
       /**
-       * 5. Secure Signing
-       *
-       * Secret is decrypted inside WalletManager,
-       * used in memory only, and never logged.
-       */
-      const signature =
-        await walletManager.signPaymentTx(
-          wallet.encryptedSecret,
-          tx
-        );
-
-      /**
-       * 6. Broadcast
+       * 5. Broadcast
        */
       await db
         .update(transactions)
@@ -185,13 +168,16 @@ const paymentWorker = new Worker(
         })
         .where(eq(transactions.id, tx.id));
 
-      const txHash =
-        await walletManager.broadcastPaymentTx(
-          signature
-        );
+      const txHash = await walletManager.broadcastPaymentTx(signature);
+
+      await webhookService.trigger(agent.orgId, "payment.broadcasted", {
+        txId: tx.id,
+        txHash,
+        amount: tx.amount,
+      }, tx.id);
 
       /**
-       * 7. Finalize
+       * 6. Finalize
        */
       await db
         .update(transactions)
@@ -202,54 +188,58 @@ const paymentWorker = new Worker(
         })
         .where(eq(transactions.id, tx.id));
 
-      await policyEngine.markBudgetSpent(tx as any);
+      await policyEngine.markBudgetSpent(tx.id);
 
-      await createAuditEntry(
-        agent.orgId,
-        agent.id,
-        "payment.approved",
-        {
-          txHash,
+      await webhookService.trigger(agent.orgId, "payment.confirmed", {
+        txId: tx.id,
+        txHash,
+        amount: tx.amount,
+      }, tx.id);
+
+      await createAuditEntry(agent.orgId, agent.id, "payment.confirmed", {
+        txHash,
+        amount: tx.amount,
+        txId: tx.id,
+      });
+
+      return { txHash };
+    } catch (error: any) {
+      console.error(`[Worker] Transaction ${transactionId} failed: ${error.message}`);
+
+      // RECOVERY LOGIC
+      const [currentTx] = await db
+        .select()
+        .from(transactions)
+        .where(eq(transactions.id, tx.id));
+
+      if (currentTx && !["broadcasted", "confirmed", "signed"].includes(currentTx.status)) {
+        await policyEngine.releaseBudgetReservation(tx.agentId, tx.amount);
+        await webhookService.trigger(agent.orgId, "budget.released", {
+          agentId: agent.id,
           amount: tx.amount,
           txId: tx.id,
-        }
-      );
-
-      return {
-        txHash,
-      };
-    } catch (error: any) {
-      console.error(
-        `[Worker] Transaction ${transactionId} failed: ${error.message}`
-      );
-
-      /**
-       * Recovery:
-       * Only release reserved budget if reserveBudget succeeded.
-       */
-      if (budgetReserved) {
-        await policyEngine.releaseBudgetReservation(
-          tx as any
-        );
+          reason: error.message,
+        }, tx.id);
       }
 
       await db
         .update(transactions)
         .set({
           status: "failed",
+          failureReason: error.message,
           updatedAt: new Date(),
         })
         .where(eq(transactions.id, tx.id));
 
-      await createAuditEntry(
-        agent.orgId,
-        agent.id,
-        "payment.failed",
-        {
-          error: error.message,
-          txId: tx.id,
-        }
-      );
+      await webhookService.trigger(agent.orgId, "payment.failed", {
+        txId: tx.id,
+        error: error.message,
+      }, tx.id);
+
+      await createAuditEntry(agent.orgId, agent.id, "payment.failed", {
+        error: error.message,
+        txId: tx.id,
+      });
 
       throw error;
     }
@@ -259,49 +249,35 @@ const paymentWorker = new Worker(
     concurrency: 5,
     skipVersionCheck: true,
   }
+ );
 
-);
+ paymentWorker.on("completed", (job) => {
+   console.log(`✅ [Worker] Job completed: ${job.id}`);
+ });
 
-/**
- * -----------------------------------
- * WORKER EVENTS
- * -----------------------------------
- */
 
-paymentWorker.on("completed", (job) => {
-  console.log(
-    `[Worker] Job ${job.id} completed`
-  );
-});
+ paymentWorker.on("failed", (job, err) => {
+   console.error(`❌ [Worker] Job failed: ${job?.id} - ${err.message}`);
+ });
 
-paymentWorker.on("failed", (job, error) => {
-  console.error(
-    `[Worker] Job ${job?.id} failed: ${error.message}`
-  );
-});
+ console.log("🚀 AgentRail Signer Worker Operational");
+}
 
-/**
- * -----------------------------------
- * AUDIT LOG HELPER
- * -----------------------------------
- */
+if (workerType === "all" || workerType === "webhook") {
+  const { startWebhookWorker } = require("./webhook-worker");
+  startWebhookWorker().then(() => {
+    console.log("🔗 [Worker] Webhook Delivery Worker Started");
+  });
+}
 
-async function createAuditEntry(
-  orgId: string,
-  agentId: string,
-  event: string,
-  details: unknown
-) {
+
+async function createAuditEntry(orgId: string, actorId: string, event: string, details: any) {
   await db.insert(auditLogs).values({
     id: uuidv4(),
     orgId,
-    agentId,
-    actorId: agentId,
+    actorId,
     event,
     details,
-  } as any);
+    createdAt: new Date(),
+  });
 }
-
-console.log(
-  "🚀 AgentRail Signer Worker Operational"
-);

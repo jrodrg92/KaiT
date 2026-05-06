@@ -59,9 +59,27 @@ export const authMiddleware = async (c: Context, next: Next) => {
 };
 
 /**
+ * Middleware: Scope-based Access Control (RBAC)
+ */
+export const requireScope = (requiredScope: string) => {
+  return async (c: Context, next: Next) => {
+    const auth = c.get("auth") as AuthContext;
+    
+    if (!auth.scopes.includes(requiredScope) && !auth.scopes.includes("admin:all")) {
+      return c.json({ 
+        error: `Forbidden: Missing required scope '${requiredScope}'`,
+        requiredScope 
+      }, 403);
+    }
+    
+    await next();
+  };
+};
+
+/**
  * Key Generation Utility
  */
-export function generateApiKey(orgId: string, name: string, type: "live" | "test" = "test") {
+export function generateApiKey(orgId: string, name: string, type: "live" | "test" = "test", scopes: string[] = ["payments:write", "agents:read"]) {
   const bytes = randomBytes(32);
   const prefix = type === "live" ? "ar_live_" : "ar_test_";
   const rawKey = `${prefix}${bytes.toString("hex")}`;
@@ -69,11 +87,13 @@ export function generateApiKey(orgId: string, name: string, type: "live" | "test
   const keyPrefix = rawKey.substring(0, 11);
 
   return {
-    rawKey, // MOSTRAR SOLO UNA VEZ
+    rawKey,
     keyHash,
     keyPrefix,
     type,
     orgId,
-    name
+    name,
+    scopes
   };
 }
+

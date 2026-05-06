@@ -35,51 +35,48 @@ __export(index_exports, {
 });
 module.exports = __toCommonJS(index_exports);
 var import_axios = __toESM(require("axios"));
-var import_zod = require("zod");
-var AgentRailError = class extends Error {
+var AgentRailError = class _AgentRailError extends Error {
   constructor(statusCode, message, details) {
     super(message);
     this.statusCode = statusCode;
     this.details = details;
     this.name = "AgentRailError";
+    Object.setPrototypeOf(this, _AgentRailError.prototype);
   }
 };
 var AgentRail = class {
   client;
   constructor(config) {
-    if (!config.apiKey) throw new Error("AgentRail API Key is required");
+    if (!config.apiKey) {
+      throw new Error("AgentRail API Key is required. Get one at https://dashboard.agentrail.io");
+    }
     this.client = import_axios.default.create({
       baseURL: config.baseUrl || "https://api.agentrail.io/v1",
-      timeout: config.timeout || 1e4,
+      timeout: config.timeout || 15e3,
       headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        "Content-Type": "application/json"
+        "X-API-Key": config.apiKey,
+        // Using standard X-API-Key header
+        "Content-Type": "application/json",
+        "User-Agent": "AgentRail-NodeSDK/1.0.0"
       }
     });
     this.client.interceptors.response.use(
       (response) => response,
-      async (error) => {
-        const config2 = error.config;
-        if (!config2 || !config2.maxRetries) return Promise.reject(this.handleError(error));
-        config2.__retryCount = config2.__retryCount || 0;
-        if (config2.__retryCount >= config2.maxRetries) return Promise.reject(this.handleError(error));
-        config2.__retryCount += 1;
-        return this.client(config2);
+      (error) => {
+        if (error.response) {
+          throw new AgentRailError(
+            error.response.status,
+            error.response.data?.error || "AgentRail API Error",
+            error.response.data
+          );
+        }
+        throw error;
       }
     );
   }
-  handleError(error) {
-    if (error.response) {
-      return new AgentRailError(
-        error.response.status,
-        error.response.data?.error || "API Error",
-        error.response.data
-      );
-    }
-    return new Error(error.message || "Network Error");
-  }
   /**
-   * Agents Management
+   * AGENTS
+   * Manage your autonomous AI agents and their identities.
    */
   agents = {
     list: async () => {
@@ -100,43 +97,38 @@ var AgentRail = class {
     }
   };
   /**
-   * Payments & Transactions
+   * PAYMENTS
+   * Programmatic payment rails for AI agents on the Kaspa network.
    */
   payments = {
-    send: async (data) => {
+    /**
+     * Creates a new autonomous payment.
+     * @param data.idempotencyKey Required to prevent duplicate payments.
+     */
+    create: async (data) => {
       const res = await this.client.post("/payments", data);
       return res.data;
     },
-    listTransactions: async (agentId) => {
-      const params = agentId ? { agentId } : {};
-      const res = await this.client.get("/transactions", { params });
-      return txSchema.array().parse(res.data);
+    get: async (id) => {
+      const res = await this.client.get(`/transactions/${id}`);
+      return res.data;
+    },
+    list: async (filters) => {
+      const res = await this.client.get("/transactions", { params: filters });
+      return res.data;
     }
   };
   /**
-   * Webhooks & Usage
+   * KEYS
+   * Manage API keys for organization-level access.
    */
-  webhooks = {
-    list: async () => {
-      const res = await this.client.get("/webhooks");
-      return res.data;
-    },
+  keys = {
     create: async (data) => {
-      const res = await this.client.post("/webhooks", data);
+      const res = await this.client.post("/api-keys", data);
       return res.data;
     }
   };
 };
-var txSchema = import_zod.z.object({
-  id: import_zod.z.string().uuid(),
-  agentId: import_zod.z.string().uuid(),
-  toAddress: import_zod.z.string(),
-  amount: import_zod.z.string(),
-  status: import_zod.z.enum(["pending", "approved", "blocked", "signed", "broadcasted", "confirmed", "failed"]),
-  txHash: import_zod.z.string().optional(),
-  createdAt: import_zod.z.string().or(import_zod.z.date()).transform((val) => new Date(val)),
-  updatedAt: import_zod.z.string().or(import_zod.z.date()).transform((val) => new Date(val))
-});
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   AgentRail,

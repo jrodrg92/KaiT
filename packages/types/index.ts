@@ -3,23 +3,28 @@ import { z } from "zod";
 // Status Enums
 export const AgentStatusSchema = z.enum(["active", "paused", "revoked"]);
 export const TxStatusSchema = z.enum([
-  "pending", 
-  "approved", 
-  "blocked", 
+  "created", 
+  "budget_reserved", 
+  "queued", 
+  "signing", 
   "signed", 
   "broadcasted", 
   "confirmed", 
-  "failed"
+  "failed",
+  "canceled"
 ]);
 
 // Internal helper for Transaction
 export const TransactionSchema = z.object({
   id: z.string().uuid(),
+  orgId: z.string().uuid(),
   agentId: z.string().uuid(),
+  idempotencyKey: z.string(),
   toAddress: z.string(),
   amount: z.string(),
   status: TxStatusSchema,
   txHash: z.string().optional(),
+  failureReason: z.string().optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
@@ -62,7 +67,9 @@ export const PolicySchema = z.object({
   agentId: z.string().uuid(),
   dailyLimit: z.string(),
   monthlyLimit: z.string(),
-  spentAmount: z.string().optional(),
+  spentDaily: z.string(),
+  spentMonthly: z.string(),
+  isActive: z.boolean(),
   currency: z.string().default("KAS"),
   maxPerTransaction: z.string().optional(),
   requireApprovalAbove: z.string().optional(),

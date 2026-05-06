@@ -8,13 +8,23 @@
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
+    "dev:local": "concurrently -n \"api,signer,recon,webhook\" -c \"cyan,magenta,yellow,blue\" \"pnpm --filter api dev\" \"pnpm --filter worker dev:signer\" \"pnpm --filter worker dev:recon\" \"pnpm --filter worker dev:webhook\"",
+    "db:migrate": "pnpm --filter @agentrail/db migrate",
+    "seed:local": "tsx scripts/seed-local.ts",
+    "reset:local": "tsx scripts/reset-local.ts && pnpm seed:local",
+    "health:local": "tsx scripts/health-local.ts",
+    "test:e2e:local": "pnpm --filter @agentrail/sdk test:e2e",
     "lint": "turbo lint",
     "test": "turbo test"
   },
+
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.4",
+    "concurrently": "^9.2.1",
     "ioredis": "^5.0.0",
     "prettier": "latest",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
     "turbo": "latest",
     "typescript": "latest"
   },

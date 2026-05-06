@@ -4,8 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "dev:signer": "set WORKER_TYPE=signer&& tsx watch src/index.ts",
+    "dev:recon": "set WORKER_TYPE=recon&& tsx watch src/index.ts",
+    "dev:webhook": "set WORKER_TYPE=webhook&& tsx watch src/index.ts",
     "start": "tsx src/index.ts"
   },
+
   "dependencies": {
     "bullmq": "^5.0.0",
     "dotenv": "^16.0.0",

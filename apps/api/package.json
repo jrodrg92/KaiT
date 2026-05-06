@@ -7,13 +7,14 @@
     "start": "tsx src/index.ts"
   },
   "dependencies": {
-    "hono": "^4.0.0",
-    "@hono/zod-validator": "^0.2.0",
-    "dotenv": "^16.0.0",
-    "ioredis": "^5.0.0",
-    "bullmq": "^5.0.0",
     "@agentrail/db": "workspace:*",
-    "@agentrail/types": "workspace:*"
+    "@agentrail/types": "workspace:*",
+    "@hono/node-server": "^2.0.1",
+    "@hono/zod-validator": "^0.2.0",
+    "bullmq": "^5.0.0",
+    "dotenv": "^16.0.0",
+    "hono": "^4.0.0",
+    "ioredis": "^5.0.0"
   },
   "devDependencies": {
     "tsx": "latest",

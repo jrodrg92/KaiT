@@ -1,0 +1,134 @@
+openapi: 3.0.3
+info:
+  title: AgentRail API
+  description: Programmable payment infrastructure for autonomous AI agents on the Kaspa network.
+  version: 1.0.0
+  contact:
+    name: AgentRail Support
+    url: https://agentrail.io
+servers:
+  - url: https://api.agentrail.io/v1
+    description: Production API
+  - url: http://localhost:3001/v1
+    description: Local Development
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API Key
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Insufficient permissions (scopes)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+    BadRequest:
+      description: Validation error or business logic violation
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+        requestId:
+          type: string
+    
+    Pagination:
+      type: object
+      properties:
+        limit: { type: integer }
+        offset: { type: integer }
+        hasMore: { type: boolean }
+
+    PaginatedAgents:
+      type: object
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Agent' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+
+    PaginatedPayments:
+      type: object
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Payment' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+
+paths:
+  /agents:
+    get:
+      summary: List all agents
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, maximum: 100 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0 }
+        - name: createdAfter
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: List of agents
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedAgents' }
+
+  /payments:
+    get:
+      summary: List all payments
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, maximum: 100 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0 }
+        - name: status
+          in: query
+          schema: { type: string }
+        - name: agentId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: createdAfter
+          in: query
+          schema: { type: string, format: date-time }
+
+      responses:
+        '200':
+          description: List of payments
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedPayments' }
+
+
+  /health:
+    get:
+      summary: Check API health
+      responses:
+        '200':
+          description: API is healthy
+
+  /metrics:
+    get:
+      summary: Operational metrics
+      security: [{ bearerAuth: [admin:read] }]
+      responses:
+        '200':
+          description: Metrics JSON

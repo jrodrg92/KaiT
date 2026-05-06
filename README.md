@@ -25,20 +25,26 @@ AgentRail is built as a modular monorepo using **Turborepo** and **pnpm**, desig
 - **Queue**: BullMQ + Redis
 - **Aesthetics**: Glassmorphism, Framer Motion animations.
 
-## Development Commands
-```powershell
-# Install everything
-npx pnpm install
+## Getting Started (Local Development)
 
-# Launch all services (Dashboard, API, Worker)
-npx pnpm dev
+AgentRail is optimized for a fast, **Docker-free** local experience using your existing Supabase and Redis instances.
 
-# Run unit tests
-npx pnpm test
+1. **Install Dependencies**: `pnpm install`
+2. **Environment**: `cp .env.local.example .env` (Add your DATABASE_URL and REDIS_URL)
+3. **Database**: `pnpm db:migrate && pnpm seed:local`
+4. **Run All Services**: `pnpm dev:local`
 
-# Push database schema to Supabase
-pnpm --filter @agentrail/db db:push
-```
+For more details, see the [Local Development Guide](./docs/local-development.md).
+
+## Core Commands
+
+| Command | Description |
+|---------|-------------|
+| `pnpm dev:local` | Start API and all 3 Workers concurrently. |
+| `pnpm health:local` | Check system status (API, DB, Redis, Workers). |
+| `pnpm seed:local` | Bootstrap demo data and API Key. |
+| `pnpm test:e2e:local` | Run full payment flow verification. |
 
 ## Infrastructure Configuration
-Copy `.env.example` to `.env` and fill in your Supabase and Redis credentials.
+Copy `.env.local.example` to `.env` and fill in your Supabase and Redis credentials.
+

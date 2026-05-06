@@ -1,50 +1,47 @@
 // index.ts
 import axios from "axios";
-import { z } from "zod";
-var AgentRailError = class extends Error {
+var AgentRailError = class _AgentRailError extends Error {
   constructor(statusCode, message, details) {
     super(message);
     this.statusCode = statusCode;
     this.details = details;
     this.name = "AgentRailError";
+    Object.setPrototypeOf(this, _AgentRailError.prototype);
   }
 };
 var AgentRail = class {
   client;
   constructor(config) {
-    if (!config.apiKey) throw new Error("AgentRail API Key is required");
+    if (!config.apiKey) {
+      throw new Error("AgentRail API Key is required. Get one at https://dashboard.agentrail.io");
+    }
     this.client = axios.create({
       baseURL: config.baseUrl || "https://api.agentrail.io/v1",
-      timeout: config.timeout || 1e4,
+      timeout: config.timeout || 15e3,
       headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        "Content-Type": "application/json"
+        "X-API-Key": config.apiKey,
+        // Using standard X-API-Key header
+        "Content-Type": "application/json",
+        "User-Agent": "AgentRail-NodeSDK/1.0.0"
       }
     });
     this.client.interceptors.response.use(
       (response) => response,
-      async (error) => {
-        const config2 = error.config;
-        if (!config2 || !config2.maxRetries) return Promise.reject(this.handleError(error));
-        config2.__retryCount = config2.__retryCount || 0;
-        if (config2.__retryCount >= config2.maxRetries) return Promise.reject(this.handleError(error));
-        config2.__retryCount += 1;
-        return this.client(config2);
+      (error) => {
+        if (error.response) {
+          throw new AgentRailError(
+            error.response.status,
+            error.response.data?.error || "AgentRail API Error",
+            error.response.data
+          );
+        }
+        throw error;
       }
     );
   }
-  handleError(error) {
-    if (error.response) {
-      return new AgentRailError(
-        error.response.status,
-        error.response.data?.error || "API Error",
-        error.response.data
-      );
-    }
-    return new Error(error.message || "Network Error");
-  }
   /**
-   * Agents Management
+   * AGENTS
+   * Manage your autonomous AI agents and their identities.
    */
   agents = {
     list: async () => {
@@ -65,43 +62,38 @@ var AgentRail = class {
     }
   };
   /**
-   * Payments & Transactions
+   * PAYMENTS
+   * Programmatic payment rails for AI agents on the Kaspa network.
    */
   payments = {
-    send: async (data) => {
+    /**
+     * Creates a new autonomous payment.
+     * @param data.idempotencyKey Required to prevent duplicate payments.
+     */
+    create: async (data) => {
       const res = await this.client.post("/payments", data);
       return res.data;
     },
-    listTransactions: async (agentId) => {
-      const params = agentId ? { agentId } : {};
-      const res = await this.client.get("/transactions", { params });
-      return txSchema.array().parse(res.data);
+    get: async (id) => {
+      const res = await this.client.get(`/transactions/${id}`);
+      return res.data;
+    },
+    list: async (filters) => {
+      const res = await this.client.get("/transactions", { params: filters });
+      return res.data;
     }
   };
   /**
-   * Webhooks & Usage
+   * KEYS
+   * Manage API keys for organization-level access.
    */
-  webhooks = {
-    list: async () => {
-      const res = await this.client.get("/webhooks");
-      return res.data;
-    },
+  keys = {
     create: async (data) => {
-      const res = await this.client.post("/webhooks", data);
+      const res = await this.client.post("/api-keys", data);
       return res.data;
     }
   };
 };
-var txSchema = z.object({
-  id: z.string().uuid(),
-  agentId: z.string().uuid(),
-  toAddress: z.string(),
-  amount: z.string(),
-  status: z.enum(["pending", "approved", "blocked", "signed", "broadcasted", "confirmed", "failed"]),
-  txHash: z.string().optional(),
-  createdAt: z.string().or(z.date()).transform((val) => new Date(val)),
-  updatedAt: z.string().or(z.date()).transform((val) => new Date(val))
-});
 export {
   AgentRail,
   AgentRailError

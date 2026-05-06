@@ -4,6 +4,9 @@
   "private": true,
   "main": "./src/index.ts",
   "dependencies": {
-    "@agentrail/types": "workspace:*"
+    "@agentrail/types": "workspace:*",
+    "@agentrail/db": "workspace:*",
+    "drizzle-orm": "latest"
+
   }
 }

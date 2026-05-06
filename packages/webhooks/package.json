@@ -2,5 +2,12 @@
   "name": "@agentrail/webhooks",
   "version": "0.1.0",
   "private": true,
-  "main": "./src/index.ts"
+  "main": "src/index.ts",
+  "dependencies": {
+    "@agentrail/db": "workspace:*",
+    "@agentrail/types": "workspace:*",
+    "axios": "^1.6.0",
+    "bullmq": "^5.0.0",
+    "ioredis": "^5.3.0"
+  }
 }

@@ -1,11 +1,5 @@
-import { Agent, Transaction } from '@agentrail/types';
+import { Agent, Transaction, TxStatus } from '@agentrail/types';
 
-declare module "axios" {
-    interface AxiosRequestConfig {
-        __retryCount?: number;
-        maxRetries?: number;
-    }
-}
 interface AgentRailConfig {
     apiKey: string;
     baseUrl?: string;
@@ -17,45 +11,61 @@ declare class AgentRailError extends Error {
     details?: any | undefined;
     constructor(statusCode: number, message: string, details?: any | undefined);
 }
+/**
+ * AgentRail TypeScript SDK
+ * A developer-first, backend-ready client for the AgentRail infrastructure.
+ */
 declare class AgentRail {
     private client;
     constructor(config: AgentRailConfig);
-    private handleError;
     /**
-     * Agents Management
+     * AGENTS
+     * Manage your autonomous AI agents and their identities.
      */
     agents: {
         list: () => Promise<Agent[]>;
         get: (id: string) => Promise<Agent>;
         create: (data: {
             name: string;
-            metadata?: any;
+            metadata?: Record<string, any>;
         }) => Promise<Agent>;
         revoke: (id: string) => Promise<{
-            status: string;
+            status: "revoked";
         }>;
     };
     /**
-     * Payments & Transactions
+     * PAYMENTS
+     * Programmatic payment rails for AI agents on the Kaspa network.
      */
     payments: {
-        send: (data: {
+        /**
+         * Creates a new autonomous payment.
+         * @param data.idempotencyKey Required to prevent duplicate payments.
+         */
+        create: (data: {
             agentId: string;
             toAddress: string;
             amount: string;
-            idempotencyKey?: string;
+            idempotencyKey: string;
+            metadata?: Record<string, any>;
         }) => Promise<Transaction>;
-        listTransactions: (agentId?: string) => Promise<Transaction[]>;
+        get: (id: string) => Promise<Transaction>;
+        list: (filters?: {
+            agentId?: string;
+            status?: TxStatus;
+        }) => Promise<Transaction[]>;
     };
     /**
-     * Webhooks & Usage
+     * KEYS
+     * Manage API keys for organization-level access.
      */
-    webhooks: {
-        list: () => Promise<any>;
+    keys: {
         create: (data: {
-            url: string;
-            events: string[];
-        }) => Promise<any>;
+            name: string;
+            type: "live" | "test";
+        }) => Promise<{
+            apiKey: string;
+        }>;
     };
 }
 

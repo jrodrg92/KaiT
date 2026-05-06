@@ -1,0 +1,17 @@
+{
+  "name": "@agentrail/kms",
+  "version": "0.1.0",
+  "main": "./src/index.ts",
+  "private": true,
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "vitest": "^1.2.0",
+    "typescript": "^5.3.0",
+    "@types/node": "^20.11.0"
+  }
+}
